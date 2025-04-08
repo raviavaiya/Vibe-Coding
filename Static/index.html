@@ -1,0 +1,493 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Road Racer: Coin Collection</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            background-color: #222;
+            font-family: Arial, sans-serif;
+            flex-direction: column;
+        }
+        #game-container {
+            position: relative;
+            width: 600px;
+            margin: 0 auto;
+        }
+        canvas {
+            display: block;
+            background-color: #333;
+            border-radius: 10px;
+            box-shadow: 0 0 20px rgba(0, 0, 0, 0.5);
+        }
+        #ui-overlay {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            width: calc(100% - 20px);
+            display: flex;
+            justify-content: space-between;
+            color: white;
+            font-size: 20px;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.7);
+        }
+        #score-display {
+            padding: 10px;
+            background-color: rgba(0, 0, 0, 0.5);
+            border-radius: 10px;
+        }
+        #lives-display {
+            padding: 10px;
+            background-color: rgba(0, 0, 0, 0.5);
+            border-radius: 10px;
+        }
+        #start-screen, #game-over-screen {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            background-color: rgba(0, 0, 0, 0.7);
+            border-radius: 10px;
+            color: white;
+            text-align: center;
+        }
+        h1 {
+            color: gold;
+            margin-bottom: 10px;
+            font-size: 36px;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.7);
+        }
+        button {
+            background-color: #4CAF50;
+            border: none;
+            color: white;
+            padding: 15px 32px;
+            text-align: center;
+            text-decoration: none;
+            display: inline-block;
+            font-size: 16px;
+            margin: 20px 2px;
+            cursor: pointer;
+            border-radius: 10px;
+            transition: background-color 0.3s;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        p {
+            margin: 10px 0;
+            font-size: 18px;
+        }
+        #controls {
+            margin-top: 20px;
+            text-align: center;
+            color: #aaa;
+        }
+    </style>
+</head>
+<body>
+    <div id="game-container">
+        <canvas id="gameCanvas" width="600" height="800"></canvas>
+        <div id="ui-overlay">
+            <div id="score-display">Score: 0</div>
+            <div id="lives-display">Lives: 3</div>
+        </div>
+        <div id="start-screen">
+            <h1>Road Racer: Coin Collection</h1>
+            <p>Collect coins and avoid obstacles!</p>
+            <button id="start-button">Start Game</button>
+            <div id="controls">
+                <p>Use ← → arrow keys or A D keys to move</p>
+            </div>
+        </div>
+        <div id="game-over-screen" style="display: none;">
+            <h1>Game Over</h1>
+            <p id="final-score">Score: 0</p>
+            <button id="restart-button">Play Again</button>
+        </div>
+    </div>
+
+    <script>
+        // Game elements
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const startScreen = document.getElementById('start-screen');
+        const gameOverScreen = document.getElementById('game-over-screen');
+        const startButton = document.getElementById('start-button');
+        const restartButton = document.getElementById('restart-button');
+        const scoreDisplay = document.getElementById('score-display');
+        const livesDisplay = document.getElementById('lives-display');
+        const finalScoreDisplay = document.getElementById('final-score');
+
+        // Game constants
+        const ROAD_WIDTH = canvas.width * 0.8;
+        const ROAD_MARGIN = (canvas.width - ROAD_WIDTH) / 2;
+        const LANE_COUNT = 3;
+        const LANE_WIDTH = ROAD_WIDTH / LANE_COUNT;
+        const CAR_WIDTH = LANE_WIDTH * 0.8;
+        const CAR_HEIGHT = CAR_WIDTH * 2;
+        const COIN_SIZE = 40;
+        const OBSTACLE_WIDTH = LANE_WIDTH * 0.9;
+        const OBSTACLE_HEIGHT = OBSTACLE_WIDTH;
+        const SPEED_FACTOR = 5;
+
+        // Game state
+        let gameRunning = false;
+        let score = 0;
+        let lives = 3;
+        let roadSpeed = 5;
+        let roadOffset = 0;
+        let coins = [];
+        let obstacles = [];
+        let lastCoinTime = 0;
+        let lastObstacleTime = 0;
+        
+        // Player car
+        const car = {
+            x: canvas.width / 2 - CAR_WIDTH / 2,
+            y: canvas.height - CAR_HEIGHT * 1.5,
+            width: CAR_WIDTH,
+            height: CAR_HEIGHT,
+            lane: 1, // 0, 1, 2 for left, center, right
+            speed: 0
+        };
+        
+        // Controls
+        const keys = {
+            left: false,
+            right: false
+        };
+
+        // Event listeners
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'ArrowLeft' || e.key === 'a' || e.key === 'A') keys.left = true;
+            if (e.key === 'ArrowRight' || e.key === 'd' || e.key === 'D') keys.right = true;
+        });
+
+        document.addEventListener('keyup', (e) => {
+            if (e.key === 'ArrowLeft' || e.key === 'a' || e.key === 'A') keys.left = false;
+            if (e.key === 'ArrowRight' || e.key === 'd' || e.key === 'D') keys.right = false;
+        });
+
+        startButton.addEventListener('click', startGame);
+        restartButton.addEventListener('click', startGame);
+
+        // Game functions
+        function startGame() {
+            gameRunning = true;
+            score = 0;
+            lives = 3;
+            roadSpeed = 5;
+            coins = [];
+            obstacles = [];
+            car.lane = 1;
+            car.x = ROAD_MARGIN + car.lane * LANE_WIDTH + (LANE_WIDTH - car.width) / 2;
+            
+            startScreen.style.display = 'none';
+            gameOverScreen.style.display = 'none';
+            scoreDisplay.textContent = `Score: ${score}`;
+            livesDisplay.textContent = `Lives: ${lives}`;
+            
+            requestAnimationFrame(gameLoop);
+        }
+
+        function gameLoop(timestamp) {
+            if (!gameRunning) return;
+            
+            // Clear canvas
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            // Update road
+            roadOffset = (roadOffset + roadSpeed) % 50;
+            
+            // Draw road
+            drawRoad();
+            
+            // Update car position
+            updateCarPosition();
+            
+            // Spawn objects
+            if (timestamp - lastCoinTime > 1000) {
+                spawnCoin();
+                lastCoinTime = timestamp;
+            }
+            
+            if (timestamp - lastObstacleTime > 2000) {
+                spawnObstacle();
+                lastObstacleTime = timestamp;
+            }
+            
+            // Update and draw objects
+            updateCoins();
+            updateObstacles();
+            
+            // Draw car
+            drawCar();
+            
+            // Check for collisions
+            checkCollisions();
+            
+            // Update UI
+            scoreDisplay.textContent = `Score: ${score}`;
+            livesDisplay.textContent = `Lives: ${lives}`;
+            
+            // Continue game loop
+            requestAnimationFrame(gameLoop);
+        }
+
+        function drawRoad() {
+            // Road background
+            ctx.fillStyle = '#444';
+            ctx.fillRect(ROAD_MARGIN, 0, ROAD_WIDTH, canvas.height);
+            
+            // Road markings
+            ctx.strokeStyle = '#FFF';
+            ctx.lineWidth = 5;
+            
+            // Lane dividers
+            for (let i = 1; i < LANE_COUNT; i++) {
+                ctx.beginPath();
+                const x = ROAD_MARGIN + i * LANE_WIDTH;
+                
+                // Dashed line
+                for (let y = -roadOffset; y < canvas.height; y += 50) {
+                    ctx.moveTo(x, y);
+                    ctx.lineTo(x, y + 30);
+                }
+                
+                ctx.stroke();
+            }
+            
+            // Road edges
+            ctx.beginPath();
+            ctx.moveTo(ROAD_MARGIN, 0);
+            ctx.lineTo(ROAD_MARGIN, canvas.height);
+            ctx.moveTo(canvas.width - ROAD_MARGIN, 0);
+            ctx.lineTo(canvas.width - ROAD_MARGIN, canvas.height);
+            ctx.strokeStyle = '#FFF';
+            ctx.lineWidth = 8;
+            ctx.stroke();
+        }
+
+        function updateCarPosition() {
+            // Calculate target position based on lane
+            const targetX = ROAD_MARGIN + car.lane * LANE_WIDTH + (LANE_WIDTH - car.width) / 2;
+            
+            // Smooth car movement
+            car.x += (targetX - car.x) * 0.2;
+            
+            // Lane changing
+            if (keys.left && car.lane > 0) {
+                car.lane -= 0.05;
+            }
+            if (keys.right && car.lane < LANE_COUNT - 1) {
+                car.lane += 0.05;
+            }
+            
+            // Make sure car stays in a valid lane
+            car.lane = Math.max(0, Math.min(car.lane, LANE_COUNT - 1));
+        }
+
+        function drawCar() {
+            // Car body
+            ctx.fillStyle = '#E74C3C';
+            ctx.fillRect(car.x, car.y, car.width, car.height);
+            
+            // Windows
+            ctx.fillStyle = '#333';
+            const windowWidth = car.width * 0.7;
+            const windowMargin = (car.width - windowWidth) / 2;
+            
+            // Front window
+            ctx.fillRect(car.x + windowMargin, car.y + car.height * 0.15, windowWidth, car.height * 0.2);
+            
+            // Back window
+            ctx.fillRect(car.x + windowMargin, car.y + car.height * 0.45, windowWidth, car.height * 0.2);
+            
+            // Wheels
+            ctx.fillStyle = '#333';
+            const wheelWidth = car.width * 0.2;
+            const wheelOffset = car.width * 0.1;
+            
+            // Left wheels
+            ctx.fillRect(car.x - wheelOffset, car.y + car.height * 0.15, wheelWidth, car.height * 0.2);
+            ctx.fillRect(car.x - wheelOffset, car.y + car.height * 0.65, wheelWidth, car.height * 0.2);
+            
+            // Right wheels
+            ctx.fillRect(car.x + car.width - wheelWidth + wheelOffset, car.y + car.height * 0.15, wheelWidth, car.height * 0.2);
+            ctx.fillRect(car.x + car.width - wheelWidth + wheelOffset, car.y + car.height * 0.65, wheelWidth, car.height * 0.2);
+        }
+
+        function spawnCoin() {
+            const lane = Math.floor(Math.random() * LANE_COUNT);
+            const coinX = ROAD_MARGIN + lane * LANE_WIDTH + (LANE_WIDTH - COIN_SIZE) / 2;
+            
+            coins.push({
+                x: coinX,
+                y: -COIN_SIZE,
+                width: COIN_SIZE,
+                height: COIN_SIZE,
+                collected: false
+            });
+        }
+
+        function spawnObstacle() {
+            const lane = Math.floor(Math.random() * LANE_COUNT);
+            const obstacleX = ROAD_MARGIN + lane * LANE_WIDTH + (LANE_WIDTH - OBSTACLE_WIDTH) / 2;
+            
+            obstacles.push({
+                x: obstacleX,
+                y: -OBSTACLE_HEIGHT,
+                width: OBSTACLE_WIDTH,
+                height: OBSTACLE_HEIGHT
+            });
+        }
+
+        function updateCoins() {
+            for (let i = coins.length - 1; i >= 0; i--) {
+                const coin = coins[i];
+                
+                // Move coin down
+                coin.y += roadSpeed;
+                
+                // Remove if off-screen or collected
+                if (coin.y > canvas.height || coin.collected) {
+                    coins.splice(i, 1);
+                    continue;
+                }
+                
+                // Draw coin
+                drawCoin(coin);
+            }
+        }
+
+        function updateObstacles() {
+            for (let i = obstacles.length - 1; i >= 0; i--) {
+                const obstacle = obstacles[i];
+                
+                // Move obstacle down
+                obstacle.y += roadSpeed;
+                
+                // Remove if off-screen
+                if (obstacle.y > canvas.height) {
+                    obstacles.splice(i, 1);
+                    continue;
+                }
+                
+                // Draw obstacle
+                drawObstacle(obstacle);
+            }
+        }
+
+        function drawCoin(coin) {
+            // Outer circle
+            ctx.beginPath();
+            ctx.arc(coin.x + coin.width / 2, coin.y + coin.height / 2, coin.width / 2, 0, Math.PI * 2);
+            ctx.fillStyle = '#FFD700';
+            ctx.fill();
+            ctx.strokeStyle = '#DAA520';
+            ctx.lineWidth = 3;
+            ctx.stroke();
+            
+            // Inner detail
+            ctx.beginPath();
+            ctx.arc(coin.x + coin.width / 2, coin.y + coin.height / 2, coin.width / 3, 0, Math.PI * 2);
+            ctx.strokeStyle = '#DAA520';
+            ctx.lineWidth = 2;
+            ctx.stroke();
+            
+            // Dollar sign
+            ctx.font = '20px Arial';
+            ctx.fillStyle = '#DAA520';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText('$', coin.x + coin.width / 2, coin.y + coin.height / 2);
+        }
+
+        function drawObstacle(obstacle) {
+            // Obstacle body
+            ctx.fillStyle = '#3498DB';
+            ctx.fillRect(obstacle.x, obstacle.y, obstacle.width, obstacle.height);
+            
+            // Details
+            ctx.fillStyle = '#2980B9';
+            ctx.fillRect(obstacle.x + obstacle.width * 0.1, obstacle.y + obstacle.height * 0.1, 
+                       obstacle.width * 0.8, obstacle.height * 0.8);
+                       
+            // Warning stripes
+            ctx.fillStyle = '#F1C40F';
+            const stripeHeight = obstacle.height * 0.15;
+            ctx.fillRect(obstacle.x, obstacle.y + obstacle.height * 0.2, obstacle.width, stripeHeight);
+            ctx.fillRect(obstacle.x, obstacle.y + obstacle.height * 0.6, obstacle.width, stripeHeight);
+        }
+
+        function checkCollisions() {
+            // Check coin collisions
+            for (const coin of coins) {
+                if (!coin.collected && isColliding(car, coin)) {
+                    coin.collected = true;
+                    score += 10;
+                    
+                    // Increase difficulty
+                    if (score % 50 === 0) {
+                        roadSpeed += 0.5;
+                    }
+                }
+            }
+            
+            // Check obstacle collisions
+            for (const obstacle of obstacles) {
+                if (isColliding(car, obstacle)) {
+                    hitObstacle();
+                    // Remove obstacle
+                    const index = obstacles.indexOf(obstacle);
+                    if (index > -1) {
+                        obstacles.splice(index, 1);
+                    }
+                }
+            }
+        }
+
+        function isColliding(obj1, obj2) {
+            return obj1.x < obj2.x + obj2.width &&
+                   obj1.x + obj1.width > obj2.x &&
+                   obj1.y < obj2.y + obj2.height &&
+                   obj1.y + obj1.height > obj2.y;
+        }
+
+        function hitObstacle() {
+            lives--;
+            
+            // Flash the screen red
+            ctx.fillStyle = 'rgba(255, 0, 0, 0.3)';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            if (lives <= 0) {
+                gameOver();
+            }
+        }
+
+        function gameOver() {
+            gameRunning = false;
+            finalScoreDisplay.textContent = `Final Score: ${score}`;
+            gameOverScreen.style.display = 'flex';
+        }
+
+        // Initial game setup
+        drawRoad();
+        drawCar();
+    </script>
+</body>
+</html>
